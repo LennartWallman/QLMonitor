@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SEDD — Teknisk granskning: backend</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #222; padding: 24px; }
+    h1,h2,h3 { color: #0b3b66; }
+    pre { background:#f6f8fa; padding:12px; border:1px solid #e1e4e8; overflow:auto; }
+    code { font-family: Consolas, "Courier New", monospace; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .section { margin-top: 18px; }
+    ul { margin-left: 20px; }
+    table { border-collapse: collapse; width:100%; margin-top:8px; }
+    th,td { border:1px solid #ddd; padding:8px; text-align:left; }
+    .important { color: #b30000; font-weight: bold; }
+    .muted { color: #666; }
+    .checklist li { margin-bottom:6px; }
+  </style>
+</head>
+<body>
+  <h1>SEDD — Teknisk granskning: backend</h1>
+  <p class="meta">Datum: 2026-05-25<br>Granskade filer: <code>server.js</code>, <code>db.js</code>, <code>emailService.js</code>, <code>authRoutes.js</code></p>  <h2>1. Syfte och omfattning</h2>
+  <p>Syftet med denna rapport är att dokumentera säkerhets-, stabilitets- och robusthetsbrister i backend-koden för SEDD, ge konkreta rekommendationer och leverera kodförslag (patcher) för högt prioriterade problem. Granskningen täcker autentisering, password reset, databasanslutning, e-post och filimport.</p>  <h2>2. Sammanfattning (högnivå)</h2>
+  <ul>
+    <li>Kritiska problem: dubblett av <code>/reset-password</code>, loggning av reset-token i klartext, <code>db.js</code> som kör <code>process.exit(1)</code> vid DB-fel, och användning av <code>MemoryStore</code> för sessioner i produktion.</li>
+    <li>Praktiska buggar: variabelskugga i diagnoses-endpoint, osäkra SMTP/TLS-inställningar, sync filoperationer utan felhantering, inkonsistenta env-namn.</li>
+    <li>Rekommendation (prioritering): (1) ta bort token-loggning & dubblett-route, (2) säkra DB-anslutning, (3) standardisera e-post/env & TLS, (4) byt session-store i produktion.</li>
+  </ul>  <h2 class="section">3. Viktiga fynd (prioriterade)</h2>  <h3>3.1 Dubblett: reset-password route</h3>
+  <p><strong>Observation:</strong> En POST <code>/reset-password</code> finns både i <code>server.js</code> och i <code>authRoutes.js</code>. Express använder sista registrerade route — det leder till inkonsekvent beteende.</p>
+  <p><strong>Åtgärd:</strong> Centralisera i en fil (rekommenderat: <code>authRoutes.js</code>) och ta bort den andra.</p>  <h3>3.2 Token loggas i klartext</h3>
+  <p><strong>Observation:</strong> Reset-token loggas (<code>console.log</code>) i <code>authRoutes.js</code> (och i den duplicerade route i <code>server.js</code>).</p>
+  <p class="important"><strong>Risk:</strong> Allvarlig säkerhetsrisk — ta bort token-logging omedelbart.</p>
+  <p><strong>Föreslagen ändring:</strong> ersätt token-loggutskrifter med en diskret händelselogg, t.ex.:</p>
+  <pre><code>// DÅLIGT
+console.log(Synlig token: ${resetToken});// BÄTTRE
+console.log('Reset token generated for UserID=' + user.UserID);
+  </code></pre>  <h3>3.3 <code>db.js</code>: process.exit(1) och brist på error-hantering</h3>
+  <p><strong>Observation:</strong> <code>db.js</code> kör <code>process.exit(1)</code> vid connect-fel och saknar <code>pool.on('error')</code>. Pool-/promise-referenser kan bli inkonsistenta.</p>
+  <p><strong>Åtgärd (kort):</strong> ta bort <code>process.exit</code>, kasta felet eller implementera retry/backoff, lägg till <code>pool.on('error')</code> som nollställer pool-variabler, och exponera <code>closePool()</code> för graceful shutdown.</p>  <h3>3.4 Session store: MemoryStore i produktion</h3>
+  <p><strong>Observation:</strong> <code>express-session</code> använder <code>MemoryStore</code> utan miljöstyrning.</p>
+  <p><strong>Åtgärd:</strong> byt till Redis/SQL-store för produktion (styr via env, t.ex. <code>SESSION_STORE=redis</code> och <code>REDIS_URL</code>).</p>  <h3>3.5 E-post: osäkra default-inställningar och env-inkonsekvens</h3>
+  <p><strong>Observation:</strong> <code>emailService.js</code> använder <code>secure:false</code>, <code>tls.rejectUnauthorized=false</code> och blandar <code>SMTP_*</code> och <code>EMAIL_*</code> env-namn. <code>sendPasswordResetEmail</code> använder <code>process.env.SMTP_USER</code> som från-adress.</p>
+  <p><strong>Åtgärd:</strong> standardisera env-namn (<code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>, <code>EMAIL_FROM</code>, <code>SMTP_SECURE</code>, <code>SMTP_REJECT_UNAUTHORIZED</code>), gör TLS konfigurerbart och defaulta till säkert läge i produktion.</p>  <h3>3.6 Filoperationer: sync utan felhantering</h3>
+  <p><strong>Observation:</strong> flera ställen använder <code>fs.writeFileSync</code> och <code>fs.unlinkSync</code> utan try/catch.</p>
+  <p><strong>Åtgärd:</strong> använd asynkrona <code>fsPromises</code> eller wrappa unlink i try/catch för att undvika uncaught exceptions som stoppar request.</p>  <h3>3.7 Variabelskugga i diagnoses POST</h3>
+  <p><strong>Observation:</strong> dubbel deklaration av <code>const { name }</code> i samma scope — detta skulle kasta fel.</p>
+  <p><strong>Åtgärd:</strong> ta bort dupliceringen och gör en enda deklaration.</p>  <h2 class="section">4. Riskbedömning</h2>
+  <ul>
+    <li><strong>Säkerhet (Hög):</strong> token-loggning och osäkra SMTP/TLS.</li>
+    <li><strong>Tillgänglighet (Hög):</strong> <code>db.js</code> som avslutar process vid DB-fel.</li>
+    <li><strong>Integritet/spårbarhet (Medel):</strong> <code>logEvent</code> använder <code>process.env.USERNAME</code> istället för session-användare.</li>
+    <li><strong>Drift/skalbarhet (Medel):</strong> MemoryStore för sessioner.</li>
+  </ul>  <h2 class="section">5. Testplan (acceptanstester)</h2>
+  <ol>
+    <li><strong>Password reset flow:</strong> begär reset, kontrollera e-post (testbox), använd länk, verifiera att token i DB är hashad och rensas efter reset, inga tokens i loggar. Testa utgången token.</li>
+    <li><strong>DB reconnect:</strong> simulera DB-avbrott, verifiera att app inte kraschar okontrollerat och återansluter.</li>
+    <li><strong>Sessions:</strong> kör flera instanser med Redis-store och verifiera delade sessioner.</li>
+    <li><strong>E-post/TLS:</strong> kör prod-inställningar (<code>SMTP_SECURE=true</code>) och verifiera felhantering.</li>
+    <li><strong>File import:</strong> ladda upp giltig/ogiltig Excel och kontrollera att temporära filer tas bort samt inga uncaught exceptions.</li>
+  </ol>  <h2 class="section">6. Rekommenderade kodpatcher (konkreta snippets)</h2>  <h3>6.1 Förbättrad <code>db.js</code> (ersätt hela filen)</h3>
+  <pre><code>// db.js — förbättrad poolhantering med eventlistener och env‑konfig
+const sql = require('mssql');
+require('dotenv').config();const dbConfig = {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  server: process.env.DB_SERVER,
+  database: process.env.DB_DATABASE,
+  options: {
+    encrypt: process.env.DB_ENCRYPT === 'true',
+    trustServerCertificate: process.env.DB_TRUST_SERVER_CERT === 'true'
+  },
+  connectionTimeout: Number(process.env.DB_CONNECT_TIMEOUT) || 15000,
+  requestTimeout: Number(process.env.DB_REQUEST_TIMEOUT) || 300000,
+  pool: {
+    max: Number(process.env.DB_POOL_MAX) || 10,
+    min: Number(process.env.DB_POOL_MIN) || 0,
+    idleTimeoutMillis: Number(process.env.DB_POOL_IDLE) || 30000
+  }
+};let pool = null;
+let poolConnectPromise = null;async function createPool() {
+  const p = new sql.ConnectionPool(dbConfig);
+  p.on('error', (err) => {
+    console.error('MSSQL pool error:', err);
+    try { p.close().catch(()=>{}); } catch(e){}
+    if (pool === p) {
+      pool = null;
+      poolConnectPromise = null;
+    }
+  });
+  poolConnectPromise = p.connect();
+  await poolConnectPromise;
+  return p;
+}async function getPool() {
+  if (!dbConfig.server || !dbConfig.database) {
+    throw new Error('DB configuration missing (DB_SERVER/DB_DATABASE)');
+  }  if (!pool) {
+    try {
+      console.log('db.js: connecting to MSSQL...');
+      pool = await createPool();
+      console.log('db.js: MSSQL pool ready');
+    } catch (err) {
+      console.error('db.js: initial DB connect failed:', err);
+      pool = null;
+      poolConnectPromise = null;
+      throw err;
+    }
+  }  if (poolConnectPromise) {
+    await poolConnectPromise;
+  }  return pool;
+}async function closePool() {
+  if (pool) {
+    try { await pool.close(); } catch (e) {}
+    pool = null;
+    poolConnectPromise = null;
+  }
+}module.exports = { getPool, closePool, sql };
+  </code></pre>  <h3>6.2 Ta bort token-loggning i <code>authRoutes.js</code></h3>
+  <pre><code>// Byt ut token-loggar:console.log(3. Synlig Token (för e-post): ${resetToken});console.log(4. Hashad Token (för DB):    ${hashedToken});console.log('Reset token generated for UserID=' + user.UserID);
+</code></pre>
+<h3>6.3 <code>emailService.js</code>: standardisering & säkrare defaults</h3>
+<pre><code>// Viktiga delar:
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
+const SMTP_SECURE = (process.env.SMTP_SECURE === 'true');
+const REJECT_UNAUTHORIZED = (process.env.SMTP_REJECT_UNAUTHORIZED === 'true');const transportConfig = {
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_SECURE,
+  tls: { rejectUnauthorized: REJECT_UNAUTHORIZED }
+};if (process.env.SMTP_USER) {
+  transportConfig.auth = { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS };
+}const transporter = nodemailer.createTransport(transportConfig);let emailAvailable = true;
+transporter.verify((err) => {
+  if (err) { console.error('SMTP verify failed:', err); emailAvailable = false; }
+  else { console.log('SMTP ready'); emailAvailable = true; }
+});async function sendPasswordResetEmail(user, resetLink) {
+  if (!emailAvailable) throw new Error('Email service not available');
+  if (!user || !user.Email) throw new Error('Recipient email missing');  const mailOptions = {
+    from: process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@example.com',
+    to: user.Email,
+    subject: 'Återställ ditt lösenord - SEDD',
+    html: '...'
+  };  await transporter.sendMail(mailOptions);
+  return true;
+}
+  </code></pre>  <h3>6.4 Wrappa filborttagning i try/catch</h3>
+  <pre><code>try {
+  if (req.file && fs.existsSync(req.file.path)) {
+    fs.unlinkSync(req.file.path);
+  }
+} catch (e) {
+  console.warn('Could not remove uploaded file:', e);
+}
+  </code></pre>  <h3>6.5 Fix för variabelskugga i diagnoses POST</h3>
+  <pre><code>// Rätt variant
+try {
+  const { name, inactive = 0 } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  ...
+}
+  </code></pre>  <h2 class="section">7. Drift/implementeringsplan och timeline (föreslaget)</h2>
+  <p>Prioriterad arbetsordning (tidsestimat):</p>
+  <ol>
+    <li>Akut säkerhet (0.5–1 dag): ta bort token-loggning, ta bort dubblett /reset-password, verifiera reset-flow i staging.</li>
+    <li>DB-stabilitet (0.5–1 dag): ersätt <code>db.js</code> med förbättrad variant, testa återanslutning.</li>
+    <li>E-post & TLS (0.5 dag): standardisera env, säkra TLS, lägga till <code>emailAvailable</code> check.</li>
+    <li>Sessions & skalbarhet (1 dag): byt till RedisStore i staging, loadtest.</li>
+    <li>Refaktor & validering (1–2 dagar): input-validering, health endpoint, logging-konsolidering.</li>
+  </ol>  <h2 class="section">8. Återställningsplan</h2>
+  <ul>
+    <li>Deploya till staging först.</li>
+    <li>Ha rollback-plan (git revert + config rollback).</li>
+    <li>Vid produktsfel: aktivera process manager logs, revert commit, undersök loggar och DB-dump.</li>
+  </ul>  <h2 class="section">9. Spårbarhet & audit</h2>
+  <p>Ändra <code>logEvent</code> så att den tar <code>username</code> (eller <code>userId</code>) som parameter istället för att läsa <code>process.env.USERNAME</code>. Exempel:</p>
+  <pre><code>async function logEvent(actionType, details, tableName = "WebSocket", recordId = 0, username = 'system') {
+  ...
+  .input("UserName", sql.NVarChar, username)
+  ...
+}
+  </code></pre>  <h2 class="section">10. Checklista (snabb)</h2>
+  <ul class="checklist">
+    <li>Ta bort token-loggar</li>
+    <li>Ta bort dubblett av <code>/reset-password</code></li>
+    <li>Ersätt <code>db.js</code> enligt patch</li>
+    <li>Lägg till <code>pool.on('error')</code> + nollställ</li>
+    <li>Byt MemoryStore i prod till Redis/SQL</li>
+    <li>Standardisera SMTP env-variabler</li>
+    <li>Wrappa <code>fs.unlinkSync</code> i try/catch</li>
+    <li>Fix variable shadowing i diagnoses endpoint</li>
+    <li>Implementera input-validering (Joi/express-validator)</li>
+    <li>Lägg till health endpoint</li>
+  </body>
+</html>

@@ -1,0 +1,21 @@
+# Node / build
+node_modules/
+dist/
+# PowerShell/exports
+*.zip
+/output/
+# SQL exports (om du inte vill committa dem)
+Tables/
+Indexes/
+Permissions/
+OtherObjects/
+# OS
+.DS_Store
+Thumbs.db
+# Editor
+.vscode/
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.*

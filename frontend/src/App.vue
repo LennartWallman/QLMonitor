@@ -20,11 +20,11 @@
           <!-- 👑 Endast synlig för SuperUsers -->
           <button 
             v-if="isSuperUser"
-            @click="showUserAdmin = true" 
-            class="btn-theme-toggle"
+            class="btn-admin-gear" 
             title="Hantera användare (endast SuperUser)"
+            @click="handleAdminClick"
           >
-            <span>⚙️</span>
+            <span>&#9881;</span>
           </button>
  
           <!-- 🌓 Tema-växlare (Mörkt/Ljust läge) -->
@@ -477,6 +477,15 @@ watch(currentServer, (newServer, oldServer) => {
   }
 })
  
+// Felsöknings-watchers för Admin-modalen
+watch(showUserAdmin, (newVal) => {
+  console.log('🔍 [WATCH] showUserAdmin ändrades till:', newVal)
+})
+ 
+watch(isSuperUser, (newVal) => {
+  console.log('🔍 [WATCH] isSuperUser ändrades till:', newVal)
+})
+ 
 // Funktioner
 const fetchServerSpecs = async (server) => {
   if (!server) return
@@ -506,12 +515,22 @@ const closeSpecsDetails = () => {
 // Kolla om inloggad användare är SuperUser (styr om admin-knappen visas)
 const checkSuperUserRole = async () => {
   try {
+    console.log('📡 [checkSuperUserRole] Skickar roll-kontroll till backend...')
     const response = await axios.get('http://sllbi01:3003/api/admin/check-role')
+    console.log('📡 [checkSuperUserRole] Svar från backend:', response.data)
     isSuperUser.value = response.data.role === 'SU'
   } catch (error) {
-    console.error('Kunde inte kontrollera SU-roll:', error)
+    console.error('❌ [checkSuperUserRole] Kunde inte kontrollera SU-roll:', error)
     isSuperUser.value = false
   }
+}
+ 
+// Hanterar klick på admin-kugghjulet med loggning
+const handleAdminClick = () => {
+  console.log('⚙️ [handleAdminClick] Användaren klickade på kugghjulet!')
+  console.log('⚙️ [handleAdminClick] Nuvarande tillstånd - isSuperUser:', isSuperUser.value, '| showUserAdmin:', showUserAdmin.value)
+  showUserAdmin.value = !showUserAdmin.value
+  console.log('⚙️ [handleAdminClick] Nytt tillstånd - showUserAdmin:', showUserAdmin.value)
 }
  
 // Hämta debug-info från API (NYTT)
@@ -739,7 +758,7 @@ onBeforeUnmount(() => {
 </script>
  
 <style scoped>
-/* 👇 --- START: SVARSTIDSMÄTNING (CSS-STYLING FOR LOGG-TABELL OCH BADGES) --- */
+/* Spara din befintliga CSS-kod nedan oförändrad */
 .api-calls-table-container {
   background: #0f172a;
   border: 1px solid #334155;
@@ -807,11 +826,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 👆 --- END: SVARSTIDSMÄTNING (CSS-STYLING FOR LOGG-TABELL OCH BADGES) --- */
  
-/* ============================================================================
-   🎨 THEME VARIABLES (Hanterar både ljust och mörkt läge)
-   ============================================================================ */
 #app {
   --bg-app: #f9fafb;
   --bg-card: #ffffff;
@@ -831,7 +846,6 @@ onBeforeUnmount(() => {
   position: relative; /* För vattenstämpeln */
 }
  
-/* Spara din befintliga CSS-kod nedan oförändrad */
 #app.dark-theme {
   --bg-app: #0f172a; /* Slate 900 */
   --bg-card: #1e293b; /* Slate 800 */
@@ -1501,4 +1515,19 @@ onBeforeUnmount(() => {
     padding: 0.75rem 1rem;
   }
 }
+
+.btn-admin-gear {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 10;
+}
+
 </style>

@@ -3,5 +3,9 @@
   "templater-obsidian",
   "obsidian-tasks-plugin",
   "quickadd",
-  "calendar"
+  "calendar",
+  "anything-as-md",
+  "folder-note-plugin",
+  "obsidian-view-mode-by-frontmatter",
+  "webpage-html-export"
 ]

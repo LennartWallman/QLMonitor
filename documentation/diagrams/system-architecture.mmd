@@ -1,0 +1,39 @@
+# System Architecture - QLMonitor (Mermaid)
+
+```mermaid
+flowchart TB
+  subgraph USER_SIDE
+    Browser[Browser (Vue 3 UI)]
+  end
+
+  subgraph BACKEND_SIDE
+    API[Node.js / Express API]
+    Monitor[monitor.js (collector & pools)]
+    Socket[Socket.IO]
+    EmailSvc[emailService (SMTP)]
+    TeamsSvc[notificationService (Teams webhook)]
+    PM2[PM2 / ecosystem]
+  end
+
+  subgraph DATA_SIDE
+    ConfigDB[Config/Management DB (SQL Server)]
+    MDW[MDW / Performance Warehouse]
+    TargetSQL[Monitored SQL Servers]
+  end
+
+  Browser -- HTTP / NTLM --> API
+  Browser -- Socket.IO --> Socket
+  API --> Monitor
+  Monitor -->|read/write| ConfigDB
+  Monitor -->|MDW queries| MDW
+  Monitor -->|direct queries / DMV| TargetSQL
+  Monitor --> EmailSvc
+  Monitor --> TeamsSvc
+  PM2 --> API
+```
+
+Forklaring:
+- Visar hög nivå-arkitektur: frontend (Vue) kommunicerar med backend via REST och Socket.IO.
+- monitor.js är kärnan som hanterar pooler, insamling och analyser.
+- Data skrivs till en central Config/Management DB och kan även läsas från MDW.
+- Notifieringar skickas via e-post (SMTP) och Teams (webhook). PM2 används för processhantering i produktion.

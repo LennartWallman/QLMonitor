@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  Browser->>API: subscribeToServer(socket)
+  Note right of API: Socket.IO channel created
+  loop Monitoring cycle (e.g. every 60s)
+    API->>Monitor: runMonitoringCycle()
+    Monitor->>TargetSQL: query performance / jobs / dmvs
+    Monitor->>ConfigDB: insert history (ServerMemoryHistory, DiskUsageHistory)
+    Monitor->>MDW: optionally query aggregated stats
+    Monitor->>Monitor: analyze anomalies (jobs failed, disk low)
+    alt anomaly detected
+      Monitor->>ConfigDB: usp_LogAndCheckSystemAlert(...)
+      Monitor->>EmailSvc: sendEmail(...)
+      Monitor->>TeamsSvc: sendTeamsAlert(...)
+    end
+    Monitor->>SocketIO: emit fullStatusUpdate / performanceUpdate
+    SocketIO->>Browser: receive update
+  end

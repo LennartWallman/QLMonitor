@@ -1,0 +1,8 @@
+flowchart LR
+  JobFail[SQL Agent job failed] --> MonitorCheck[Monitor detects failed job]
+  MonitorCheck -->|Call| usp_LogAndCheckSystemAlert[Stored procedure: usp_LogAndCheckSystemAlert]
+  usp_LogAndCheckSystemAlert -->|returns| decision{AlertShouldBeSent?}
+  decision -- yes --> Email[emailService.sendEmail()]
+  decision -- yes --> Teams[notificationService.sendTeamsAlert()]
+  decision -- yes --> FrontendUpdate[SocketIO emit to subscribers]
+  decision -- no --> LoggedOnly[Only logged - no notify]

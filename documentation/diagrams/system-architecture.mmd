@@ -1,6 +1,3 @@
-# System Architecture - QLMonitor (Mermaid)
-
-```mermaid
 flowchart TB
   subgraph USER_SIDE
     Browser[Browser (Vue 3 UI)]
@@ -30,10 +27,3 @@ flowchart TB
   Monitor --> EmailSvc
   Monitor --> TeamsSvc
   PM2 --> API
-```
-
-Forklaring:
-- Visar hög nivå-arkitektur: frontend (Vue) kommunicerar med backend via REST och Socket.IO.
-- monitor.js är kärnan som hanterar pooler, insamling och analyser.
-- Data skrivs till en central Config/Management DB och kan även läsas från MDW.
-- Notifieringar skickas via e-post (SMTP) och Teams (webhook). PM2 används för processhantering i produktion.

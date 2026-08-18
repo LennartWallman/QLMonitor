@@ -19,6 +19,8 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-ntlm": "^2.7.0",
+    "html-to-docx": "^1.8.0",
+    "markdown-it": "^15.0.0",
     "mssql": "^12.2.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.10",
